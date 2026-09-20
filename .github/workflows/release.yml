@@ -63,24 +63,44 @@ jobs:
           path: ${{ env.ASSET }}
 
   build-wasm:
-    name: Build WASM
+    name: Package WASM
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Install wasm-pack
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-      - name: Build WASM
-        run: wasm-pack build crates/wasm/ --release --target web
       - name: Package WASM
         run: |
           VERSION=${GITHUB_REF_NAME#v}
-          cd crates/wasm/pkg && zip -r ../../../brarchive-v${VERSION}-wasm.zip .
+          (cd crates/wasm && zip -r ../../brarchive-v${VERSION}-wasm.zip deno.json README.md mod.ts lib)
           echo "ASSET=brarchive-v${VERSION}-wasm.zip" >> $GITHUB_ENV
       - uses: actions/upload-artifact@v4
         with:
           name: wasm
           path: ${{ env.ASSET }}
+
+  # Tokenless publish via GitHub OIDC. Requires the package on jsr.io to be
+  # linked to this repository (package settings -> "GitHub repository").
+  publish-jsr:
+    name: Publish to JSR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Check package version matches tag
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          PKG_VERSION=$(jq -r .version crates/wasm/deno.json)
+          if [ "$PKG_VERSION" != "$VERSION" ]; then
+            echo "crates/wasm/deno.json is $PKG_VERSION but tag is $VERSION" >&2
+            exit 1
+          fi
+      - name: Publish
+        working-directory: crates/wasm
+        run: deno publish
 
   release:
     name: Create GitHub Release

@@ -34,6 +34,25 @@ brarchive::serialize(&btree_map)?;
 brarchive::serialize_with(&map, brarchive::SerializeOptions { dedup: true })?;
 ```
 
+## JavaScript / TypeScript Usage
+
+The same code is compiled to WebAssembly and published to JSR as
+[`@bedrock-crustaceans/brarchive`](https://jsr.io/@bedrock-crustaceans/brarchive):
+
+```shell
+deno add jsr:@bedrock-crustaceans/brarchive
+```
+
+```ts
+import { deserialize, list, serialize } from "@bedrock-crustaceans/brarchive";
+
+const bytes = serialize({ "entity.json": '{"id":"zombie"}' });
+list(bytes); // ["entity.json"]
+deserialize(bytes).get("entity.json"); // Uint8Array
+```
+
+See [crates/wasm/README.md](crates/wasm/README.md) for the full API.
+
 ## CLI Usage
 
 Install the CLI from crates.io:

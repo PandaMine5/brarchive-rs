@@ -27,12 +27,27 @@ jobs:
         run: cargo test
 
   wasm:
-    name: WASM build check
+    name: WASM / JSR package
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
-      - name: Build WASM
-        run: cargo build --target wasm32-unknown-unknown -p brarchive-wasm
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Check generated bindings are up to date
+        working-directory: crates/wasm
+        run: deno task wasmbuild:check
+      - name: Format and lint
+        working-directory: crates/wasm
+        run: |
+          deno fmt --check
+          deno lint
+      - name: Test
+        working-directory: crates/wasm
+        run: deno task test
+      - name: Publish dry run
+        working-directory: crates/wasm
+        run: deno publish --dry-run
