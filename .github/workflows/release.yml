@@ -71,11 +71,11 @@ jobs:
       - name: Install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
       - name: Build WASM
-        run: wasm-pack build wasm/ --release --target web
+        run: wasm-pack build crates/wasm/ --release --target web
       - name: Package WASM
         run: |
           VERSION=${GITHUB_REF_NAME#v}
-          cd wasm/pkg && zip -r ../../brarchive-v${VERSION}-wasm.zip .
+          cd crates/wasm/pkg && zip -r ../../../brarchive-v${VERSION}-wasm.zip .
           echo "ASSET=brarchive-v${VERSION}-wasm.zip" >> $GITHUB_ENV
       - uses: actions/upload-artifact@v4
         with:

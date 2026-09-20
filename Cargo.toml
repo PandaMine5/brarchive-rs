@@ -1,5 +1,5 @@
 [workspace]
-members = ["lib", "cli", "wasm"]
+members = ["crates/lib", "crates/cli", "crates/wasm"]
 resolver = "2"
 
 [profile.release]
