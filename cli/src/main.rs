@@ -13,6 +13,12 @@ use std::time::Instant;
 mod args;
 mod logger;
 
+/// Name of the archive under `__brarchive/` that holds the files from the
+/// pack's top-level directory. A fixed name (rather than one derived from the
+/// pack directory) lets `decode --recursive` put them back at the root no
+/// matter what the pack has been renamed to.
+const ROOT_ARCHIVE: &str = "__root__.brarchive";
+
 fn main() {
     let args = CliArgs::parse();
     setup_logger(args.log_path);
@@ -24,13 +30,19 @@ fn main() {
             recursive,
             dedup,
             delete_source,
+            skip_root,
         } => {
             let start_time = Instant::now();
 
             if recursive {
                 let out_base = out.unwrap_or_else(|| path.clone());
                 let archive_root = out_base.join("__brarchive");
-                encode_recursive(&path, &path, &archive_root, dedup, delete_source);
+                let opts = EncodeOptions {
+                    dedup,
+                    delete_source,
+                    skip_root,
+                };
+                encode_recursive(&path, &path, &archive_root, opts);
                 info!(
                     "Successfully encoded recursively in {}!",
                     humantime::format_duration(start_time.elapsed())
@@ -175,13 +187,18 @@ fn encode_single(path: &Path, out: &Path, dedup: bool, delete_source: bool) {
     }
 }
 
-fn encode_recursive(
-    source_root: &Path,
-    current: &Path,
-    archive_root: &Path,
+#[derive(Debug, Clone, Copy)]
+struct EncodeOptions {
     dedup: bool,
     delete_source: bool,
-) {
+    skip_root: bool,
+}
+
+/// Encode every directory under `source_root` into its own archive below
+/// `archive_root`, mirroring the directory tree. Files in `source_root`
+/// itself go to `__root__.brarchive` unless `skip_root` is set.
+fn encode_recursive(source_root: &Path, current: &Path, archive_root: &Path, opts: EncodeOptions) {
+    let is_root = current == source_root;
     let read_dir = fs::read_dir(current).unwrap_or_else(|err| {
         error!("Failed to read \"{}\": {}", current.display(), err);
         exit(1);
@@ -213,16 +230,15 @@ fn encode_recursive(
         }
     }
 
+    if is_root && opts.skip_root {
+        files.clear();
+    }
+
     if !files.is_empty() {
-        let relative = current.strip_prefix(source_root).unwrap_or(Path::new(""));
-        let archive_path = if relative == Path::new("") {
-            // Root-level files: name archive after the source directory itself
-            let stem = source_root
-                .file_name()
-                .and_then(OsStr::to_str)
-                .unwrap_or("root");
-            archive_root.join(stem).with_extension("brarchive")
+        let archive_path = if is_root {
+            archive_root.join(ROOT_ARCHIVE)
         } else {
+            let relative = current.strip_prefix(source_root).unwrap_or(Path::new(""));
             add_extension_if_missing(archive_root.join(relative), "brarchive")
         };
 
@@ -233,8 +249,8 @@ fn encode_recursive(
             });
         }
 
-        let archive =
-            brarchive::serialize_with(&files, SerializeOptions { dedup }).unwrap_or_else(|err| {
+        let archive = brarchive::serialize_with(&files, SerializeOptions { dedup: opts.dedup })
+            .unwrap_or_else(|err| {
                 error!("Failed to encode: {}", err);
                 exit(1);
             });
@@ -246,7 +262,7 @@ fn encode_recursive(
 
         info!("Encoded \"{}\"", archive_path.display());
 
-        if delete_source {
+        if opts.delete_source {
             for name in files.keys() {
                 let file_path = current.join(name);
                 fs::remove_file(&file_path).unwrap_or_else(|err| {
@@ -257,7 +273,7 @@ fn encode_recursive(
     }
 
     for subdir in subdirs {
-        encode_recursive(source_root, &subdir, archive_root, dedup, delete_source);
+        encode_recursive(source_root, &subdir, archive_root, opts);
     }
 }
 
@@ -370,7 +386,11 @@ fn decode_recursive(archive_root: &Path, current: &Path, out_root: &Path, opts: 
             decode_recursive(archive_root, &p, out_root, opts);
         } else if p.is_file() && p.extension().and_then(OsStr::to_str) == Some("brarchive") {
             let relative = p.strip_prefix(archive_root).unwrap_or(&p);
-            let out_dir = out_root.join(relative.with_extension(""));
+            let out_dir = if relative == Path::new(ROOT_ARCHIVE) {
+                out_root.to_path_buf()
+            } else {
+                out_root.join(relative.with_extension(""))
+            };
             if out_dir.starts_with(archive_root) {
                 error!(
                     "Skipping \"{}\": output path \"{}\" would collide with archive root",

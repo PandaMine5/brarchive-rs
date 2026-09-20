@@ -29,6 +29,11 @@ pub enum CliSubcommand {
         /// Delete source files after successful encode
         #[arg(long)]
         delete_source: bool,
+        /// With --recursive, leave files in the top-level directory as they
+        /// are instead of bundling them into __brarchive/__root__.brarchive
+        /// (this is how Mojang ships packs: manifest.json etc. stay loose)
+        #[arg(long, requires = "recursive")]
+        skip_root: bool,
     },
     #[command(
         alias = "decompress",

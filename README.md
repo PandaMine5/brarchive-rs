@@ -64,6 +64,15 @@ archive per folder:
 brarchive-cli encode path/to/pack --recursive
 ```
 
+Files in the top-level directory itself (`manifest.json`, `pack_icon.png`, and
+so on) are bundled into `__brarchive/__root__.brarchive`, and `decode
+--recursive` puts them back at the root. Mojang leaves those files loose, so
+pass `--skip-root` if you want the same layout as a vanilla pack:
+
+```shell
+brarchive-cli encode path/to/pack --recursive --skip-root
+```
+
 Add `--dedup` to store identical file contents only once, and `--delete-source`
 to remove the originals once the archive is written:
 
