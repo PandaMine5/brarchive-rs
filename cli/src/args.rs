@@ -47,6 +47,10 @@ pub enum CliSubcommand {
         /// entries such as compiled MCB blobs are written unchanged
         #[arg(short, long)]
         pretty: bool,
+        /// Replace files that already exist in the output directory instead of
+        /// aborting. Directories are always merged into, never emptied.
+        #[arg(long)]
+        overwrite: bool,
     },
     #[command(about = "List entry names in a .brarchive file")]
     List {

@@ -85,6 +85,18 @@ Extract every archive under a pack's `__brarchive/` folder in one go:
 brarchive-cli decode path/to/pack --recursive
 ```
 
+Each archive is unpacked into the directory its path under `__brarchive/`
+mirrors, so `__brarchive/textures/ui.brarchive` lands in `textures/ui/`. That
+directory is merged into, not emptied, so loose files that were never archived
+(textures, sounds, and so on) are left alone. If an entry would replace a file
+that already exists, the decode stops before writing anything; pass
+`--overwrite` to replace those files instead, for example when re-extracting
+a pack:
+
+```shell
+brarchive-cli decode path/to/pack --recursive --overwrite
+```
+
 Mojang ships the JSON inside these archives minified, and by default the CLI
 writes each entry back exactly as stored. Pass `--pretty` if you would rather
 get readable JSON with a 2-space indent. Entries that are not JSON, such as the

@@ -65,8 +65,14 @@ fn main() {
             recursive,
             delete_source,
             pretty,
+            overwrite,
         } => {
             let start_time = Instant::now();
+            let opts = DecodeOptions {
+                delete_source,
+                pretty,
+                overwrite,
+            };
 
             if recursive {
                 let archive_root = path.join("__brarchive");
@@ -75,13 +81,7 @@ fn main() {
                     exit(1);
                 }
                 let out_base = out.unwrap_or_else(|| path.clone());
-                decode_recursive(
-                    &archive_root,
-                    &archive_root,
-                    &out_base,
-                    delete_source,
-                    pretty,
-                );
+                decode_recursive(&archive_root, &archive_root, &out_base, opts);
                 info!(
                     "Successfully decoded recursively in {}!",
                     humantime::format_duration(start_time.elapsed())
@@ -90,7 +90,7 @@ fn main() {
                 let out = out.unwrap_or_else(|| {
                     extract_file_name(&path).unwrap_or(PathBuf::from("brarchive"))
                 });
-                decode_single(&path, &out, delete_source, pretty);
+                decode_single(&path, &out, opts);
                 info!(
                     "Successfully decoded archive in {}!",
                     humantime::format_duration(start_time.elapsed())
@@ -261,7 +261,18 @@ fn encode_recursive(
     }
 }
 
-fn decode_single(path: &Path, out: &Path, delete_source: bool, pretty: bool) {
+#[derive(Debug, Clone, Copy)]
+struct DecodeOptions {
+    delete_source: bool,
+    pretty: bool,
+    overwrite: bool,
+}
+
+/// Decode one archive into `out`. The output directory is created if needed
+/// and merged with whatever is already there, since a pack keeps loose files
+/// (textures, sounds, ...) next to the JSON that lives in `__brarchive/`.
+/// Existing files are never clobbered unless `--overwrite` is given.
+fn decode_single(path: &Path, out: &Path, opts: DecodeOptions) {
     if !path.exists() {
         error!("Input \"{}\" does not exist", path.display());
         exit(1);
@@ -277,20 +288,34 @@ fn decode_single(path: &Path, out: &Path, delete_source: bool, pretty: bool) {
         exit(1);
     });
 
-    if out.exists() && out.is_dir() {
-        if fs::read_dir(out)
-            .map(|mut d| d.next().is_some())
-            .unwrap_or(false)
-        {
-            error!("Output directory \"{}\" is not empty", out.display());
+    if out.exists() && !out.is_dir() {
+        error!("Output \"{}\" exists and is not a directory", out.display());
+        exit(1);
+    }
+
+    if !opts.overwrite {
+        let existing: Vec<&String> = archive
+            .keys()
+            .filter(|file| out.join(file).exists())
+            .collect();
+        if !existing.is_empty() {
+            error!(
+                "Refusing to overwrite {} existing file(s) in \"{}\" while decoding \"{}\" (pass --overwrite to replace them):",
+                existing.len(),
+                out.display(),
+                path.display()
+            );
+            for file in &existing {
+                error!("  {}", out.join(file).display());
+            }
             exit(1);
         }
-    } else if !out.exists() {
-        fs::create_dir_all(out).unwrap_or_else(|err| {
-            error!("Failed to create output directory: {}", err);
-            exit(1);
-        });
     }
+
+    fs::create_dir_all(out).unwrap_or_else(|err| {
+        error!("Failed to create output directory: {}", err);
+        exit(1);
+    });
 
     for (file, contents) in archive {
         let dest = out.join(&file);
@@ -300,7 +325,7 @@ fn decode_single(path: &Path, out: &Path, delete_source: bool, pretty: bool) {
                 exit(1);
             });
         }
-        let contents = if pretty {
+        let contents = if opts.pretty {
             prettify_json(contents)
         } else {
             contents
@@ -311,7 +336,7 @@ fn decode_single(path: &Path, out: &Path, delete_source: bool, pretty: bool) {
         info!("Decoded {:?}", file);
     }
 
-    if delete_source {
+    if opts.delete_source {
         fs::remove_file(path).unwrap_or_else(|err| {
             error!("Failed to delete source \"{}\": {}", path.display(), err);
         });
@@ -328,13 +353,7 @@ fn prettify_json(contents: Vec<u8>) -> Vec<u8> {
     }
 }
 
-fn decode_recursive(
-    archive_root: &Path,
-    current: &Path,
-    out_root: &Path,
-    delete_source: bool,
-    pretty: bool,
-) {
+fn decode_recursive(archive_root: &Path, current: &Path, out_root: &Path, opts: DecodeOptions) {
     let read_dir = fs::read_dir(current).unwrap_or_else(|err| {
         error!("Failed to read \"{}\": {}", current.display(), err);
         exit(1);
@@ -348,7 +367,7 @@ fn decode_recursive(
         let p = entry.path();
 
         if p.is_dir() {
-            decode_recursive(archive_root, &p, out_root, delete_source, pretty);
+            decode_recursive(archive_root, &p, out_root, opts);
         } else if p.is_file() && p.extension().and_then(OsStr::to_str) == Some("brarchive") {
             let relative = p.strip_prefix(archive_root).unwrap_or(&p);
             let out_dir = out_root.join(relative.with_extension(""));
@@ -360,7 +379,7 @@ fn decode_recursive(
                 );
                 continue;
             }
-            decode_single(&p, &out_dir, delete_source, pretty);
+            decode_single(&p, &out_dir, opts);
         }
     }
 }
