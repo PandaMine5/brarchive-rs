@@ -1,19 +1,19 @@
 [package]
 name = "brarchive-cli"
-version = "0.3.1"
-edition = "2021"
-rust-version = "1.81"
-authors = ["theaddonn <theaddonn@gmail.com>"]
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
 readme = "../../README.md"
 description = "CLI for Bedrock Archives in Rust"
-repository = "https://github.com/theaddonn/brarchive-rs"
-license = "Apache-2.0"
 keywords = ["archive", "minecraft", "bedrock", "cli"]
 categories = ["data-structures", "parser-implementations", "command-line-utilities"]
 
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
-brarchive = { path = "../lib", version = "0.3.0" }
+brarchive = { workspace = true }
 serde_json = { version = "1.0", features = ["preserve_order"] }
 log = "0.4"
 fern = { version = "0.7", features = ["colored"] }

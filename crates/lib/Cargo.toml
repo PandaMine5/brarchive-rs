@@ -1,13 +1,13 @@
 [package]
 name = "brarchive"
-version = "0.3.0"
-edition = "2021"
-rust-version = "1.81"
-authors = ["theaddonn <theaddonn@gmail.com>"]
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
 readme = "../../README.md"
 description = "Library for Bedrock Archives in Rust"
-repository = "https://github.com/theaddonn/brarchive-rs"
-license = "Apache-2.0"
 keywords = ["archive", "minecraft", "bedrock"]
 categories = ["data-structures", "parser-implementations"]
 
