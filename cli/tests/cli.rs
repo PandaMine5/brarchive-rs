@@ -437,10 +437,8 @@ fn single_decode_rejects_file_as_output_directory() {
 
 /// Unpack the fixture pack, re-archive every directory with
 /// `encode --recursive --delete-source`, then decode again and check the
-/// files inside subdirectories are byte-for-byte what we started with.
-///
-/// Root-level files are excluded here; see
-/// `encode_decode_round_trip_restores_root_level_files` for why.
+/// whole tree, root-level files included, is byte-for-byte what we started
+/// with.
 #[test]
 fn encode_and_decode_recursive_round_trip() {
     let pack = pack_copy();
@@ -459,36 +457,103 @@ fn encode_and_decode_recursive_round_trip() {
     assert!(archived_tree.contains_key("__brarchive/textures/ui.brarchive"));
 
     assert_ok(&run(&["decode", root, "--recursive", "--delete-source"]));
-    let round_tripped = snapshot(pack.path());
-
-    // Root-level files currently come back under `<pack dir name>/`; ignore
-    // them here so this test only covers the part that does round-trip.
-    let misplaced_root = format!("{}/", pack.path().file_name().unwrap().to_str().unwrap());
-    let nested = |tree: &BTreeMap<String, Vec<u8>>| -> BTreeMap<String, Vec<u8>> {
-        tree.iter()
-            .filter(|(k, _)| k.contains('/') && !k.starts_with(&misplaced_root))
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect()
-    };
-    assert_eq!(nested(&round_tripped), nested(&plain_tree));
+    assert_eq!(snapshot(pack.path()), plain_tree);
 }
 
-/// `encode --recursive` stores root-level files in
-/// `__brarchive/<pack dir name>.brarchive`, but `decode --recursive` unpacks
-/// that archive into `<pack dir name>/` instead of the pack root, so the two
-/// commands are not inverses for root-level files. Ignored until that
-/// asymmetry is resolved; run with `--ignored` to see the current behaviour.
+/// Root-level files go to a fixed archive name so decode can find them
+/// again regardless of what the pack directory is called.
 #[test]
-#[ignore = "encode/decode --recursive do not round-trip root-level files"]
-fn encode_decode_round_trip_restores_root_level_files() {
+fn encode_recursive_bundles_root_files_into_root_archive() {
+    let pack = pack_copy();
+    let root = pack.path().to_str().unwrap();
+    assert_ok(&run(&["decode", root, "--recursive", "--delete-source"]));
+    assert_ok(&run(&["encode", root, "--recursive"]));
+
+    let bytes = fs::read(pack.join("__brarchive/__root__.brarchive")).unwrap();
+    let entries: BTreeMap<String, Vec<u8>> = brarchive::deserialize(&bytes).unwrap();
+    let names: Vec<&str> = entries.keys().map(String::as_str).collect();
+    assert_eq!(names, ["manifest.json", "pack_icon.png"]);
+    assert_eq!(
+        entries["manifest.json"],
+        fs::read(pack.join("manifest.json")).unwrap()
+    );
+
+    // No archive named after the pack directory (the pre-fix behaviour).
+    let pack_name = pack.path().file_name().unwrap().to_str().unwrap();
+    assert!(!pack
+        .join("__brarchive")
+        .join(format!("{pack_name}.brarchive"))
+        .exists());
+}
+
+/// A root archive decodes into the pack root even when the pack lives in a
+/// differently named directory than it was encoded from.
+#[test]
+fn decode_recursive_unpacks_root_archive_into_pack_root() {
+    let pack = pack_copy();
+    let root = pack.path().to_str().unwrap();
+    assert_ok(&run(&["decode", root, "--recursive", "--delete-source"]));
+    assert_ok(&run(&["encode", root, "--recursive", "--delete-source"]));
+
+    let renamed = TempDir::new();
+    let moved = renamed.join("renamed-pack");
+    fs::rename(pack.path(), &moved).unwrap();
+    fs::create_dir_all(pack.path()).unwrap(); // keep TempDir's Drop happy
+
+    assert_ok(&run(&[
+        "decode",
+        moved.to_str().unwrap(),
+        "--recursive",
+        "--delete-source",
+    ]));
+    let files = snapshot(&moved);
+    assert!(files.contains_key("manifest.json"), "{:?}", files.keys());
+    assert!(files.contains_key("pack_icon.png"), "{:?}", files.keys());
+    assert!(!files.contains_key("renamed-pack/manifest.json"));
+    assert_pack_fully_decoded(&moved);
+}
+
+#[test]
+fn encode_recursive_skip_root_leaves_root_files_loose() {
     let pack = pack_copy();
     let root = pack.path().to_str().unwrap();
     assert_ok(&run(&["decode", root, "--recursive", "--delete-source"]));
     let plain_tree = snapshot(pack.path());
 
-    assert_ok(&run(&["encode", root, "--recursive", "--delete-source"]));
+    assert_ok(&run(&[
+        "encode",
+        root,
+        "--recursive",
+        "--delete-source",
+        "--skip-root",
+    ]));
+    let files = snapshot(pack.path());
+    assert!(!files.contains_key("__brarchive/__root__.brarchive"));
+    // Root files are neither archived nor deleted...
+    assert_eq!(files["manifest.json"], plain_tree["manifest.json"]);
+    assert_eq!(files["pack_icon.png"], plain_tree["pack_icon.png"]);
+    // ...while everything in subdirectories is.
+    assert!(files.contains_key("__brarchive/textures/ui.brarchive"));
+    assert!(files.contains_key("__brarchive/entity.brarchive"));
+    assert!(!files
+        .keys()
+        .any(|k| k.starts_with("textures/ui/") && k.ends_with(".json")));
+
     assert_ok(&run(&["decode", root, "--recursive", "--delete-source"]));
     assert_eq!(snapshot(pack.path()), plain_tree);
+}
+
+#[test]
+fn skip_root_requires_recursive() {
+    let dir = TempDir::new();
+    fs::write(dir.join("a.json"), b"{}").unwrap();
+    let out = run(&[
+        "encode",
+        dir.path().to_str().unwrap(),
+        dir.join("out.brarchive").to_str().unwrap(),
+        "--skip-root",
+    ]);
+    assert_fails(&out, "--recursive");
 }
 
 // ---------------------------------------------------------------------------
