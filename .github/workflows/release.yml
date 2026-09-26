@@ -2,10 +2,11 @@ name: Release
 
 on:
   push:
-    tags:
-      - 'v*'
+    tags: ['v*']
   workflow_dispatch:
-
+    inputs:
+      tag:
+        required: true
 
 permissions:
   contents: write
@@ -14,8 +15,18 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  prepare:
+    name: Resolve tag
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+    steps:
+      - id: resolve
+        run: echo "tag=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
   build-cli:
     name: Build CLI (${{ matrix.target }})
+    needs: prepare
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -35,6 +46,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -45,7 +58,8 @@ jobs:
       - name: Package (Unix)
         if: runner.os != 'Windows'
         run: |
-          VERSION=${GITHUB_REF_NAME#v}
+          VERSION=${{ needs.prepare.outputs.tag }}
+          VERSION=${VERSION#v}
           cp target/${{ matrix.target }}/release/${{ matrix.binary }} .
           tar czf brarchive-cli-v${VERSION}-${{ matrix.target }}.tar.gz ${{ matrix.binary }}
           echo "ASSET=brarchive-cli-v${VERSION}-${{ matrix.target }}.tar.gz" >> $GITHUB_ENV
@@ -54,7 +68,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $VERSION = $env:GITHUB_REF_NAME -replace '^v', ''
+          $VERSION = "${{ needs.prepare.outputs.tag }}" -replace '^v', ''
           Copy-Item "target/${{ matrix.target }}/release/${{ matrix.binary }}" .
           Compress-Archive -Path "${{ matrix.binary }}" -DestinationPath "brarchive-cli-v${VERSION}-${{ matrix.target }}.zip"
           echo "ASSET=brarchive-cli-v${VERSION}-${{ matrix.target }}.zip" | Out-File -Append $env:GITHUB_ENV
@@ -66,12 +80,16 @@ jobs:
 
   build-wasm:
     name: Package WASM
+    needs: prepare
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
       - name: Package WASM
         run: |
-          VERSION=${GITHUB_REF_NAME#v}
+          VERSION=${{ needs.prepare.outputs.tag }}
+          VERSION=${VERSION#v}
           (cd crates/wasm && zip -r ../../brarchive-v${VERSION}-wasm.zip deno.json README.md mod.ts lib)
           echo "ASSET=brarchive-v${VERSION}-wasm.zip" >> $GITHUB_ENV
       - uses: actions/upload-artifact@v4
@@ -83,18 +101,22 @@ jobs:
   # linked to this repository (package settings -> "GitHub repository").
   publish-jsr:
     name: Publish to JSR
+    needs: prepare
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
       - name: Check package version matches tag
         run: |
-          VERSION=${GITHUB_REF_NAME#v}
+          VERSION=${{ needs.prepare.outputs.tag }}
+          VERSION=${VERSION#v}
           PKG_VERSION=$(jq -r .version crates/wasm/deno.json)
           if [ "$PKG_VERSION" != "$VERSION" ]; then
             echo "crates/wasm/deno.json is $PKG_VERSION but tag is $VERSION" >&2
@@ -106,7 +128,7 @@ jobs:
 
   release:
     name: Create GitHub Release
-    needs: [build-cli, build-wasm]
+    needs: [prepare, build-cli, build-wasm]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -115,5 +137,6 @@ jobs:
           merge-multiple: true
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ needs.prepare.outputs.tag }}
           files: artifacts/*
           generate_release_notes: true
