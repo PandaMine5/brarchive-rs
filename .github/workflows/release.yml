@@ -1,0 +1,117 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-cli:
+    name: Build CLI (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            binary: brarchive-cli
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            binary: brarchive-cli.exe
+          - target: x86_64-apple-darwin
+            os: macos-15-intel
+            binary: brarchive-cli
+          - target: aarch64-apple-darwin
+            os: macos-15
+            binary: brarchive-cli
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }} -p brarchive-cli
+
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          cp target/${{ matrix.target }}/release/${{ matrix.binary }} .
+          tar czf brarchive-cli-v${VERSION}-${{ matrix.target }}.tar.gz ${{ matrix.binary }}
+          echo "ASSET=brarchive-cli-v${VERSION}-${{ matrix.target }}.tar.gz" >> $GITHUB_ENV
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $VERSION = $env:GITHUB_REF_NAME -replace '^v', ''
+          Copy-Item "target/${{ matrix.target }}/release/${{ matrix.binary }}" .
+          Compress-Archive -Path "${{ matrix.binary }}" -DestinationPath "brarchive-cli-v${VERSION}-${{ matrix.target }}.zip"
+          echo "ASSET=brarchive-cli-v${VERSION}-${{ matrix.target }}.zip" | Out-File -Append $env:GITHUB_ENV
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cli-${{ matrix.target }}
+          path: ${{ env.ASSET }}
+
+  build-wasm:
+    name: Package WASM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package WASM
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          (cd crates/wasm && zip -r ../../brarchive-v${VERSION}-wasm.zip deno.json README.md mod.ts lib)
+          echo "ASSET=brarchive-v${VERSION}-wasm.zip" >> $GITHUB_ENV
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wasm
+          path: ${{ env.ASSET }}
+
+  # Tokenless publish via GitHub OIDC. Requires the package on jsr.io to be
+  # linked to this repository (package settings -> "GitHub repository").
+  publish-jsr:
+    name: Publish to JSR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Check package version matches tag
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          PKG_VERSION=$(jq -r .version crates/wasm/deno.json)
+          if [ "$PKG_VERSION" != "$VERSION" ]; then
+            echo "crates/wasm/deno.json is $PKG_VERSION but tag is $VERSION" >&2
+            exit 1
+          fi
+      - name: Publish
+        working-directory: crates/wasm
+        run: deno publish
+
+  release:
+    name: Create GitHub Release
+    needs: [build-cli, build-wasm]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true

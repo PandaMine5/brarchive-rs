@@ -1,0 +1,16 @@
+[package]
+name = "brarchive"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+readme = "../../README.md"
+description = "Library for Bedrock Archives in Rust"
+keywords = ["archive", "minecraft", "bedrock"]
+categories = ["data-structures", "parser-implementations"]
+
+[dependencies]
+byteorder = "1.5"
+thiserror = "2.0"

@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Check formatting
+        run: cargo fmt --check
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Run tests
+        run: cargo test
+
+  wasm:
+    name: WASM / JSR package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Check generated bindings are up to date
+        working-directory: crates/wasm
+        run: deno task wasmbuild:check
+      - name: Format and lint
+        working-directory: crates/wasm
+        run: |
+          deno fmt --check
+          deno lint
+      - name: Test
+        working-directory: crates/wasm
+        run: deno task test
+      - name: Publish dry run
+        working-directory: crates/wasm
+        run: deno publish --dry-run

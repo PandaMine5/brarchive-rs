@@ -1,0 +1,11 @@
+.vscode/
+.idea/
+debug/
+target/
+crates/brarchive/Cargo.lock
+**/*.rs.bk
+*.pdb
+*.exe
+.rustc_info.json
+.env
+github_upload.txt

@@ -1,0 +1,18 @@
+[package]
+name = "brarchive-wasm"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+description = "WASM bindings for brarchive, published to JSR as @bedrock-crustaceans/brarchive"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+brarchive = { workspace = true }
+# Pinned: @deno/wasmbuild requires this exact version (see deno.json).
+wasm-bindgen = "=0.2.108"
