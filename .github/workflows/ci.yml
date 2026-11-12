@@ -1,117 +1,53 @@
-name: Release
+name: CI
 
 on:
   push:
-    tags:
-      - 'v*'
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Tag to build and release'
-        required: true
-
-defaults:
-  run:
-    shell: bash
-
-permissions:
-  contents: write
+  pull_request:
 
 env:
   CARGO_TERM_COLOR: always
-  TAG: ${{ github.event.inputs.tag || github.ref_name }}
 
 jobs:
-  build-cli:
-    name: Build CLI (${{ matrix.target }})
+  test:
+    name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
-      fail-fast: false
       matrix:
-        include:
-          - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
-            binary: brarchive-cli
-          - target: x86_64-pc-windows-msvc
-            os: windows-latest
-            binary: brarchive-cli.exe
-          - target: x86_64-apple-darwin
-            os: macos-15-intel
-            binary: brarchive-cli
-
+        os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.inputs.tag || github.ref }}
-
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          components: rustfmt, clippy
+      - name: Check formatting
+        run: cargo fmt --check
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Run tests
+        run: cargo test
 
-      - name: Build
-        run: cargo build --locked --release --target ${{ matrix.target }} -p brarchive-cli
-
-      - name: Package (Unix)
-        if: runner.os != 'Windows'
-        run: |
-          VERSION="${TAG#v}"
-          cp "target/${{ matrix.target }}/release/${{ matrix.binary }}" .
-          tar czf "brarchive-cli-v${VERSION}-${{ matrix.target }}.tar.gz" "${{ matrix.binary }}"
-          echo "ASSET=brarchive-cli-v${VERSION}-${{ matrix.target }}.tar.gz" >> "$GITHUB_ENV"
-
-      - name: Package (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $VERSION = $env:TAG -replace '^v', ''
-          Copy-Item "target/${{ matrix.target }}/release/${{ matrix.binary }}" .
-          Compress-Archive -Path "${{ matrix.binary }}" -DestinationPath "brarchive-cli-v${VERSION}-${{ matrix.target }}.zip"
-          echo "ASSET=brarchive-cli-v${VERSION}-${{ matrix.target }}.zip" | Out-File -Append $env:GITHUB_ENV
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: cli-${{ matrix.target }}
-          path: ${{ env.ASSET }}
-          if-no-files-found: error
-
-  build-wasm:
-    name: Package WASM
+  wasm:
+    name: WASM / JSR package
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          ref: ${{ github.event.inputs.tag || github.ref }}
-
-      - name: Package WASM
+          targets: wasm32-unknown-unknown
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Check generated bindings are up to date
+        working-directory: crates/wasm
+        run: deno task wasmbuild:check
+      - name: Format and lint
+        working-directory: crates/wasm
         run: |
-          VERSION="${TAG#v}"
-          (cd crates/wasm && zip -r "../../brarchive-v${VERSION}-wasm.zip" deno.json README.md mod.ts lib)
-          echo "ASSET=brarchive-v${VERSION}-wasm.zip" >> "$GITHUB_ENV"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: wasm
-          path: ${{ env.ASSET }}
-          if-no-files-found: error
-
-  release:
-    name: Create GitHub Release
-    needs: [build-cli, build-wasm]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: artifacts/
-          merge-multiple: true
-
-      - name: Check release files
-        run: |
-          ls -lah artifacts/
-          test -n "$(find artifacts/ -maxdepth 1 -type f -print -quit)"
-
-      - uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ env.TAG }}
-          files: artifacts/*
-          fail_on_unmatched_files: true
-          generate_release_notes: true
+          deno fmt --check
+          deno lint
+      - name: Test
+        working-directory: crates/wasm
+        run: deno task test
+      - name: Publish dry run
+        working-directory: crates/wasm
+        run: deno publish --dry-run
