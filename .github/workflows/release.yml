@@ -11,6 +11,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  VERSION: 0.4.0
 
 jobs:
   build-cli:
@@ -78,31 +79,7 @@ jobs:
           name: wasm
           path: ${{ env.ASSET }}
 
-  # Tokenless publish via GitHub OIDC. Requires the package on jsr.io to be
-  # linked to this repository (package settings -> "GitHub repository").
-  publish-jsr:
-    name: Publish to JSR
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.x
-      - name: Check package version matches tag
-        run: |
-          VERSION=${GITHUB_REF_NAME#v}
-          PKG_VERSION=$(jq -r .version crates/wasm/deno.json)
-          if [ "$PKG_VERSION" != "$VERSION" ]; then
-            echo "crates/wasm/deno.json is $PKG_VERSION but tag is $VERSION" >&2
-            exit 1
-          fi
-      - name: Publish
-        working-directory: crates/wasm
-        run: deno publish
-
+ 
   release:
     name: Create GitHub Release
     needs: [build-cli, build-wasm]
