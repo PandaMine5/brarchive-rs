@@ -40,7 +40,7 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }} -p brarchive
+        run: cargo build --release --target ${{ matrix.target }} --package brarchive-cli --bin brarchive
 
       - name: Package (Unix)
         if: runner.os != 'Windows'
