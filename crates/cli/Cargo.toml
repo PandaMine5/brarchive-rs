@@ -1,6 +1,6 @@
 [[bin]]
 name = "brarchive"
-
+path = "src/main.rs"
 
 [package]
 name = "brarchive-cli"
