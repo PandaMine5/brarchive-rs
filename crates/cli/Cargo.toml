@@ -1,5 +1,5 @@
 [package]
-name = "brarchive-cli"
+name = "brarchive"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
