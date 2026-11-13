@@ -29,10 +29,7 @@ jobs:
           - target: x86_64-apple-darwin
             os: macos-15-intel
             binary: brarchive
-          - target: aarch64-apple-darwin
-            os: macos-15
-            binary: brarchive
-
+            
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
