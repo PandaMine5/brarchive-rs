@@ -4,14 +4,20 @@ on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch: 
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v0.4.0)'
+        required: true
+        default: 'v0.4.0'
 
 permissions:
   contents: write
 
 env:
   CARGO_TERM_COLOR: always
-  VERSION: 0.4.0
+  # Tag push -> inputs.tag is empty -> falls back to the pushed tag name
+  TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   build-cli:
@@ -29,7 +35,7 @@ jobs:
           - target: x86_64-apple-darwin
             os: macos-15-intel
             binary: brarchive
-            
+
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -42,7 +48,7 @@ jobs:
       - name: Package (Unix)
         if: runner.os != 'Windows'
         run: |
-          VERSION=${GITHUB_REF_NAME#v}
+          VERSION=${TAG#v}
           cp target/${{ matrix.target }}/release/${{ matrix.binary }} .
           tar czf brarchive-v${VERSION}-${{ matrix.target }}.tar.gz ${{ matrix.binary }}
           echo "ASSET=brarchive-v${VERSION}-${{ matrix.target }}.tar.gz" >> $GITHUB_ENV
@@ -51,15 +57,16 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $VERSION = $env:GITHUB_REF_NAME -replace '^v', ''
+          $VERSION = $env:TAG -replace '^v', ''
           Copy-Item "target/${{ matrix.target }}/release/${{ matrix.binary }}" .
           Compress-Archive -Path "${{ matrix.binary }}" -DestinationPath "brarchive-v${VERSION}-${{ matrix.target }}.zip"
-          echo "ASSET=brarchive-v${VERSION}-${{ matrix.target }}.zip" | Out-File -Append $env:GITHUB_ENV
+          echo "ASSET=brarchive-v${VERSION}-${{ matrix.target }}.zip" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
 
       - uses: actions/upload-artifact@v4
         with:
           name: cli-${{ matrix.target }}
           path: ${{ env.ASSET }}
+          if-no-files-found: error
 
   build-wasm:
     name: Package WASM
@@ -68,27 +75,28 @@ jobs:
       - uses: actions/checkout@v4
       - name: Package WASM
         run: |
-          VERSION=${GITHUB_REF_NAME#v}
+          VERSION=${TAG#v}
           (cd crates/wasm && zip -r ../../brarchive-v${VERSION}-wasm.zip deno.json README.md mod.ts lib)
           echo "ASSET=brarchive-v${VERSION}-wasm.zip" >> $GITHUB_ENV
       - uses: actions/upload-artifact@v4
         with:
           name: wasm
           path: ${{ env.ASSET }}
+          if-no-files-found: error
 
- 
   release:
-     if: startsWith(github.ref, 'refs/tags/')
-     name: Create GitHub Release
-     needs: [build-cli, build-wasm]
-     runs-on: ubuntu-latest
-     steps:
-       - uses: actions/download-artifact@v4
-         with:
-           pattern: '*'
-           path: artifacts/
-           merge-multiple: true
-       - uses: softprops/action-gh-release@v2
-         with:
-           files: artifacts/*
-           generate_release_notes: true
+    name: Create GitHub Release
+    needs: [build-cli, build-wasm]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: '*'
+          path: artifacts/
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          files: artifacts/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true
